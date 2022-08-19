@@ -13,9 +13,24 @@
 
 package main
 
+import (
+	"os"
+	"os/signal"
+)
+
 func main() {
 	// Create a process
 	proc := MockProcess{}
+	// Create buffered channel
+	c := make(chan os.Signal, 1)
+	// Capture signal and notify
+	signal.Notify(c, os.Interrupt)
+
+	go func() {
+		<-c
+		signal.Reset()
+		proc.Stop()
+	}()
 
 	// Run the process (blocking)
 	proc.Run()
