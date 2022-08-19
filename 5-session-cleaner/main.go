@@ -20,17 +20,23 @@ package main
 import (
 	"errors"
 	"log"
+	"sync"
+	"time"
 )
+
+const sessionTime int64 = 5
 
 // SessionManager keeps track of all sessions from creation, updating
 // to destroying.
 type SessionManager struct {
 	sessions map[string]Session
+	sync.RWMutex
 }
 
 // Session stores the session's data
 type Session struct {
 	Data map[string]interface{}
+	Time time.Time
 }
 
 // NewSessionManager creates a new sessionManager
@@ -38,6 +44,8 @@ func NewSessionManager() *SessionManager {
 	m := &SessionManager{
 		sessions: make(map[string]Session),
 	}
+
+	go m.SessionCleaner()
 
 	return m
 }
@@ -49,9 +57,12 @@ func (m *SessionManager) CreateSession() (string, error) {
 		return "", err
 	}
 
+	m.Lock()
 	m.sessions[sessionID] = Session{
 		Data: make(map[string]interface{}),
+		Time: time.Now(),
 	}
+	m.Unlock()
 
 	return sessionID, nil
 }
@@ -63,7 +74,9 @@ var ErrSessionNotFound = errors.New("SessionID does not exists")
 // GetSessionData returns data related to session if sessionID is
 // found, errors otherwise
 func (m *SessionManager) GetSessionData(sessionID string) (map[string]interface{}, error) {
+	m.RLock()
 	session, ok := m.sessions[sessionID]
+	m.RUnlock()
 	if !ok {
 		return nil, ErrSessionNotFound
 	}
@@ -78,11 +91,29 @@ func (m *SessionManager) UpdateSessionData(sessionID string, data map[string]int
 	}
 
 	// Hint: you should renew expiry of the session here
+	m.Lock()
 	m.sessions[sessionID] = Session{
 		Data: data,
+		Time: time.Now(),
 	}
+	m.Unlock()
 
 	return nil
+}
+
+func (m *SessionManager) SessionCleaner() {
+	t := time.Tick(time.Second * 1)
+
+	for {
+		<-t
+		m.Lock()
+		for k, v := range m.sessions {
+			if v.Time.Unix() < time.Now().Unix()-sessionTime {
+				delete(m.sessions, k)
+			}
+		}
+		m.Unlock()
+	}
 }
 
 func main() {
